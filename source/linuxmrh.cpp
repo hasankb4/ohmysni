@@ -101,7 +101,7 @@ static int callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
         int siteLen = (int)site.length();
         for (int i = tcp_payload_offset; i <= (len - siteLen); i++) {
             if (std::memcmp(&payload[i], site.c_str(), siteLen) == 0) {
-                std::cout << "[!] Yakalandı: " << site << " (ID: " << id << ")" << std::endl;
+                std::cout << "[!] Catched: " << site << " (ID: " << id << ")" << std::endl;
                 
                 int split_at = i + 1; 
 
