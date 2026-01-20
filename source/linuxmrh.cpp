@@ -1,6 +1,7 @@
 #ifdef __linux__
 
 #include <arpa/inet.h>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <libnetfilter_queue/libnetfilter_queue.h>
@@ -116,6 +117,24 @@ static int callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
   int tcp_payload_len = len - (ip_header_len + tcp_header_len);
   unsigned char *tcp_data = payload + ip_header_len + tcp_header_len;
 
+  // More detailed logging
+  if (tcp_payload_len > 0) {
+    std::cout << "[DEBUG] TCP payload len: " << tcp_payload_len
+              << " First bytes: ";
+    fflush(stdout);
+    for (int i = 0; i < std::min(6, tcp_payload_len); i++) {
+      printf("%02x ", tcp_data[i]);
+    }
+    fflush(stdout);
+    std::cout << std::endl;
+
+    // Explicit TLS check logging
+    if (tcp_data[0] == 0x16) {
+      std::cout << "[DEBUG] TLS Record detected (0x16). Byte[5]=" << std::hex
+                << (int)tcp_data[5] << std::dec << std::endl;
+    }
+  }
+
   if (tcp_payload_len > 0 && isTLSClientHello(tcp_data, tcp_payload_len)) {
 
     int split_pos = 1; // Split after the first byte to confuse DPI
@@ -127,8 +146,10 @@ static int callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
               << std::endl;
 
     int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    if (sock < 0)
+    if (sock < 0) {
+      std::cerr << "[ERROR] Failed to create raw socket!" << std::endl;
       return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+    }
 
     int one = 1;
     setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one));
@@ -139,6 +160,9 @@ static int callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 
     size_t remainder = tcp_payload_len - split_pos;
 
+    std::cout << "[DEBUG] Sending split packets. First: " << split_pos
+              << " bytes, Second: " << remainder << " bytes" << std::endl;
+
     // Send segments in reverse order to bypass Deep Packet Inspection
     sendTCPSegment(sock, &dest, payload, ip_header_len, tcp_header_len,
                    tcp_data + split_pos, remainder, split_pos, false);
@@ -147,6 +171,8 @@ static int callback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
                    tcp_data, split_pos, 0, true);
 
     close(sock);
+    std::cout << "[DEBUG] Original packet DROPPED, fragments sent."
+              << std::endl;
     return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
   }
 
